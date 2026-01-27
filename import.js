@@ -27,19 +27,20 @@ async function importMessages() {
       const content = await readFile(filePath, 'utf-8');
       const data = JSON.parse(content);
       
-      // Filter for message types and extract user/text
+      // Filter for message types and extract user/text/ts
       const messages = data
         .filter(obj => obj.type === 'message' && obj.user && obj.text)
         .map(obj => ({
           user_id: obj.user,
-          message: obj.text
+          message: obj.text,
+          ts: obj.ts
         }));
       
       // Insert messages in batches
       for (const msg of messages) {
         await client.query(
-          'INSERT INTO botbslack (user_id, message) VALUES ($1, $2)',
-          [msg.user_id, msg.message]
+          'INSERT INTO botbslack (user_id, message, ts) VALUES ($1, $2, $3)',
+          [msg.user_id, msg.message, msg.ts]
         );
       }
       

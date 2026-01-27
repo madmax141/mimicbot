@@ -11,16 +11,16 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Helper: Store a message for a user
-async function storeMessage(user_id, message) {
+async function storeMessage(user_id, message, ts) {
   await query(
-    'INSERT INTO botbslack (user_id, message) VALUES ($1, $2)',
-    [user_id, message]
+    'INSERT INTO botbslack (user_id, message, ts) VALUES ($1, $2, $3)',
+    [user_id, message, ts]
   );
   return { success: true, message: 'Message stored' };
 }
 
 // Helper: Generate a Markov chain message for a user
-async function generateMessage(user_id, textBetweenMentions) {
+async function generateMessage(user_id, textBefore, textAfter) {
   const result = await query(
     'SELECT message FROM botbslack WHERE user_id = $1',
     [user_id]
@@ -37,27 +37,31 @@ async function generateMessage(user_id, textBetweenMentions) {
   // Create Markov chain
   const chain = new Chain({ corpus });
 
-  // Check if there's text between the bot mention and user mention
-  const trimmedText = textBetweenMentions.trim();
+  const hasTextBefore = textBefore.trim().length > 0;
+  const hasTextAfter = textAfter.trim().length > 0;
   
   let chainResult;
   let data;
 
-  if (trimmedText.length === 0) {
-    // No text between mentions - standard chain response
+  if ((hasTextBefore && hasTextAfter) || (!hasTextBefore && !hasTextAfter)) {
+    // Text on both sides: <bot> text <user> text, or no text on both sides - default empty chains
     chainResult = chain.run();
     data = chainResult[2].join(' ');
-  } else {
-    // Text exists between mentions - use as tokens
-    const tokens = trimmedText.split(/\s+/);
+  } else if (hasTextBefore) {
+    // Text before user mention: <bot> text <user> - use tokens, return middle + last
+    const tokens = textBefore.trim().split(/\s+/);
     chainResult = chain.run({ tokens });
     data = chainResult[1].join(' ') + ' ' + chainResult[2].join(' ');
+  } else if (hasTextAfter) {
+    // Text after user mention: <bot> <user> text - use tokens, return first + middle
+    const tokens = textAfter.trim().split(/\s+/);
+    chainResult = chain.run({ tokens });
+    data = chainResult[0].join(' ') + ' ' + chainResult[1].join(' ');
   }
 
   return {
     success: true,
     targetUser: user_id,
-    rawdata: chainResult,
     data: data.trim()
   };
 }
@@ -138,7 +142,7 @@ app.post('/message', async (req, res) => {
 
       if (!botWasMentioned) {
         // Bot was NOT mentioned - store the message
-        await storeMessage(messageUserId, messageText);
+        await storeMessage(messageUserId, messageText, event.ts);
         console.log(`Stored message from user ${messageUserId}`);
       } else {
         // Bot WAS mentioned - find the next @mention after the bot mention
@@ -148,16 +152,22 @@ app.post('/message', async (req, res) => {
           // Extract text between bot mention and user mention
           const botMention = mentions[botMentionIndex];
           const botMentionEnd = botMention.index + `<@${botMention.userId}>`.length;
-          const textBetweenMentions = messageText.slice(botMentionEnd, nextMention.index);
+          const textBefore = messageText.slice(botMentionEnd, nextMention.index);
+          
+          // Extract text after user mention
+          const userMentionEnd = nextMention.index + `<@${nextMention.userId}>`.length;
+          const textAfter = messageText.slice(userMentionEnd);
 
           // Generate markov chain for the mentioned user
           const targetUserId = nextMention.userId;
-          const result = await generateMessage(targetUserId, textBetweenMentions);
+          const result = await generateMessage(targetUserId, textBefore, textAfter);
           console.log(`Generated message for user ${targetUserId}:`, result.data);
           
-          // Post the generated message back to Slack
-          const channel = event.channel;
-          await postToSlack(channel, result.data);
+          // Post the generated message back to Slack (skip if no token configured)
+          if (SLACK_BOT_TOKEN) {
+            const channel = event.channel;
+            await postToSlack(channel, result.data);
+          }
         } else {
           console.log('Bot was mentioned but no target user specified');
         }

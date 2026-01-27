@@ -16,7 +16,8 @@ export async function initDb() {
     CREATE TABLE IF NOT EXISTS botbslack (
       id SERIAL PRIMARY KEY,
       user_id TEXT,
-      message TEXT
+      message TEXT,
+      ts TEXT
     )
   `);
 }
