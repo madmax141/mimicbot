@@ -6,6 +6,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || '';
 
+// Track processed event IDs to prevent duplicate processing from Slack retries
+const processedEvents = new Set();
+const MAX_PROCESSED_EVENTS = 1000;
+
 // Middleware to parse JSON and URL-encoded bodies
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -121,6 +125,23 @@ app.post('/message', async (req, res) => {
     // Handle Slack event callbacks (message.channels events)
     if (body.type === 'event_callback' && body.event?.type === 'message') {
       const event = body.event;
+      const eventId = body.event_id;
+
+      // Deduplicate: skip if we've already processed this event (Slack retries)
+      if (eventId && processedEvents.has(eventId)) {
+        console.log(`Skipping duplicate event: ${eventId}`);
+        return res.status(200).send();
+      }
+
+      // Track this event ID
+      if (eventId) {
+        processedEvents.add(eventId);
+        // Prevent memory leak: clear old events if set gets too large
+        if (processedEvents.size > MAX_PROCESSED_EVENTS) {
+          const firstEvent = processedEvents.values().next().value;
+          processedEvents.delete(firstEvent);
+        }
+      }
 
       // Skip bot messages - don't process or store them
       if (event.bot_id || event.subtype === 'bot_message') {
