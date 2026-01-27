@@ -10,6 +10,56 @@ const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || '';
 const processedEvents = new Set();
 const MAX_PROCESSED_EVENTS = 1000;
 
+// User profile cache: userId -> { displayName, avatarUrl }
+const userProfiles = new Map();
+
+// Fetch all users from Slack API and cache their profiles
+async function loadSlackUsers() {
+  if (!SLACK_BOT_TOKEN) {
+    console.log('No SLACK_BOT_TOKEN, skipping user profile load');
+    return;
+  }
+
+  console.log('Loading user profiles from Slack...');
+  let cursor = '';
+  let totalUsers = 0;
+
+  do {
+    const url = new URL('https://slack.com/api/users.list');
+    url.searchParams.set('limit', '200');
+    if (cursor) url.searchParams.set('cursor', cursor);
+
+    const response = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${SLACK_BOT_TOKEN}` }
+    });
+    const data = await response.json();
+
+    if (!data.ok) {
+      console.error('Failed to load Slack users:', data.error);
+      return;
+    }
+
+    for (const user of data.members) {
+      if (!user.deleted && user.profile) {
+        userProfiles.set(user.id, {
+          displayName: user.profile.display_name || user.profile.real_name || user.name,
+          avatarUrl: user.profile.image_192 || user.profile.image_72
+        });
+      }
+    }
+
+    totalUsers += data.members.length;
+    cursor = data.response_metadata?.next_cursor || '';
+  } while (cursor);
+
+  console.log(`Loaded ${userProfiles.size} user profiles`);
+}
+
+// Get user profile from cache
+function getUserProfile(userId) {
+  return userProfiles.get(userId) || null;
+}
+
 // Middleware to parse JSON and URL-encoded bodies
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -91,17 +141,20 @@ function getBotUserId(authorizations) {
 }
 
 // Post a message to Slack using chat.postMessage
-async function postToSlack(channel, text) {
+async function postToSlack(channel, text, iconUrl, username) {
+  const payload = { channel, text };
+  
+  // Customize appearance if provided (requires chat:write.customize scope)
+  if (iconUrl) payload.icon_url = iconUrl;
+  if (username) payload.username = username;
+
   const response = await fetch('https://slack.com/api/chat.postMessage', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${SLACK_BOT_TOKEN}`
     },
-    body: JSON.stringify({
-      channel,
-      text
-    })
+    body: JSON.stringify(payload)
   });
 
   const data = await response.json();
@@ -187,7 +240,13 @@ app.post('/message', async (req, res) => {
           // Post the generated message back to Slack (skip if no token configured)
           if (SLACK_BOT_TOKEN) {
             const channel = event.channel;
-            await postToSlack(channel, result.data);
+            const userProfile = getUserProfile(targetUserId);
+            await postToSlack(
+              channel,
+              result.data,
+              userProfile?.avatarUrl,
+              userProfile?.displayName
+            );
           }
         } else {
           console.log('Bot was mentioned but no target user specified');
@@ -208,14 +267,15 @@ app.post('/message', async (req, res) => {
   }
 });
 
-// Initialize database and start server
+// Initialize database, load users, and start server
 initDb()
+  .then(() => loadSlackUsers())
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
   })
   .catch((err) => {
-    console.error('Failed to initialize database:', err);
+    console.error('Failed to initialize:', err);
     process.exit(1);
   });
