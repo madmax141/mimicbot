@@ -13,6 +13,9 @@ const MAX_PROCESSED_EVENTS = 1000;
 // User profile cache: userId -> { displayName, avatarUrl }
 const userProfiles = new Map();
 
+// Chain cache: userId -> Chain (persists until app restart)
+const cachedChains = new Map();
+
 // Fetch all users from Slack API and cache their profiles
 async function loadSlackUsers() {
   if (!SLACK_BOT_TOKEN) {
@@ -75,21 +78,32 @@ async function storeMessage(user_id, message, ts) {
 
 // Helper: Generate a Markov chain message for a user
 async function generateMessage(user_id, textBefore, textAfter) {
-  const result = await query(
-    'SELECT message FROM botbslack WHERE user_id = $1',
-    [user_id]
-  );
-  const rows = result.rows;
+  let chain;
 
-  if (rows.length === 0) {
-    throw { status: 404, message: 'No messages found for this user' };
+  // Check if chain is already cached for this user
+  if (cachedChains.has(user_id)) {
+    chain = cachedChains.get(user_id);
+    console.log(`Using cached chain for user ${user_id}`);
+  } else {
+    // Fetch from DB and create chain
+    const result = await query(
+      'SELECT message FROM botbslack WHERE user_id = $1',
+      [user_id]
+    );
+    const rows = result.rows;
+
+    if (rows.length === 0) {
+      throw { status: 404, message: 'No messages found for this user' };
+    }
+
+    // Create corpus - each message split into words
+    const corpus = rows.map(row => row.message.split(/\s+/));
+    
+    // Create and cache the chain
+    chain = new Chain({ corpus });
+    cachedChains.set(user_id, chain);
+    console.log(`Cached chain for user ${user_id} (${corpus.length} messages)`);
   }
-
-  // Create corpus - each message split into words
-  const corpus = rows.map(row => row.message.split(/\s+/));
-
-  // Create Markov chain
-  const chain = new Chain({ corpus });
 
   const hasTextBefore = textBefore.trim().length > 0;
   const hasTextAfter = textAfter.trim().length > 0;
