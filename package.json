@@ -1,0 +1,20 @@
+{
+  "name": "mimic",
+  "version": "1.0.0",
+  "description": "Node.js web server with PostgreSQL storage",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "import": "node import.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.21.0",
+    "markov-chainer": "^0.1.8",
+    "pg": "^8.13.0"
+  }
+}
