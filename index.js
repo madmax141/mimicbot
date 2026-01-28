@@ -100,7 +100,7 @@ async function generateMessage(user_id, textBefore, textAfter) {
     const corpus = rows.map(row => row.message.split(/\s+/));
     
     // Create and cache the chain
-    chain = new Chain({ corpus });
+    chain = new Chain({ corpus, order: 1 });
     cachedChains.set(user_id, chain);
     console.log(`Cached chain for user ${user_id} (${corpus.length} messages)`);
   }
@@ -155,20 +155,14 @@ function getBotUserId(authorizations) {
 }
 
 // Post a message to Slack using chat.postMessage
-async function postToSlack(channel, text, iconUrl, username) {
-  const payload = { channel, text };
-  
-  // Customize appearance if provided (requires chat:write.customize scope)
-  if (iconUrl) payload.icon_url = iconUrl;
-  if (username) payload.username = username;
-
+async function postToSlack(channel, text) {
   const response = await fetch('https://slack.com/api/chat.postMessage', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${SLACK_BOT_TOKEN}`
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ channel, text })
   });
 
   const data = await response.json();
@@ -253,14 +247,7 @@ app.post('/message', async (req, res) => {
           
           // Post the generated message back to Slack (skip if no token configured)
           if (SLACK_BOT_TOKEN) {
-            const channel = event.channel;
-            const userProfile = getUserProfile(targetUserId);
-            await postToSlack(
-              channel,
-              result.data,
-              userProfile?.avatarUrl,
-              userProfile?.displayName
-            );
+            await postToSlack(event.channel, result.data);
           }
         } else {
           console.log('Bot was mentioned but no target user specified');
