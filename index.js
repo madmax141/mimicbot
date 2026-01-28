@@ -80,6 +80,28 @@ async function getChainForUser(user_id) {
   return chain;
 }
 
+async function getChainForAllUsers() {
+  const ALL_USERS_KEY = '__ALL_USERS__';
+  
+  if (cachedChains.has(ALL_USERS_KEY)) {
+    return cachedChains.get(ALL_USERS_KEY);
+  }
+  
+  const result = await query('SELECT message FROM botbslack');
+  const rows = result.rows;
+
+  if (rows.length === 0) {
+    throw { status: 404, message: 'No messages found in database' };
+  }
+
+  const corpus = rows.map(row => row.message.split(/\s+/));
+  const chain = new Chain({ corpus, order: 1 });
+  cachedChains.set(ALL_USERS_KEY, chain);
+  console.log(`Cached chain for ALL USERS (${corpus.length} messages)`);
+  
+  return chain;
+}
+
 function checkForHaiku(text) {
   const words = text.trim().split(/\s+/);
   if (words.length < 3) return { isHaiku: false, text };
@@ -243,7 +265,24 @@ app.post('/message', async (req, res) => {
             await postToSlack(event.channel, finalMessage);
           }
         } else {
-          console.log('Bot was mentioned but no target user specified');
+          const chain = await getChainForAllUsers();
+          const chainResult = chain.run();
+          const data = chainResult[2].join(' ');
+          
+          const haikuCheck = checkForHaiku(data);
+          let finalMessage;
+          
+          if (haikuCheck.isHaiku) {
+            finalMessage = formatHaiku(haikuCheck.lines, 'botb');
+            console.log(`Generated haiku bonus for ALL USERS:\n${finalMessage}`);
+          } else {
+            finalMessage = data;
+            console.log(`Generated message for ALL USERS:`, finalMessage);
+          }
+          
+          if (SLACK_BOT_TOKEN) {
+            await postToSlack(event.channel, finalMessage);
+          }
         }
       }
 
