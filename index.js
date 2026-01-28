@@ -113,8 +113,7 @@ function checkForHaiku(text) {
   );
   
   if (lineSyllables[0] === 5 && lineSyllables[1] === 7 && lineSyllables[2] === 5) {
-    const formattedHaiku = `*HAIKU BONUS*\n\`\`\`${lines[0].join(' ')}\n${lines[1].join(' ')}\n${lines[2].join(' ')}\`\`\``;
-    return { isHaiku: true, text: formattedHaiku };
+    return { isHaiku: true, lines };
   }
   
   return { isHaiku: false, text };
@@ -134,6 +133,24 @@ function getBotUserId(authorizations) {
   }
   const botAuth = authorizations.find(auth => auth.is_bot);
   return botAuth ? botAuth.user_id : null;
+}
+
+async function getUserDisplayName(userId) {
+  const response = await fetch(`https://slack.com/api/users.info?user=${userId}`, {
+    headers: {
+      'Authorization': `Bearer ${SLACK_BOT_TOKEN}`
+    }
+  });
+  const data = await response.json();
+  if (data.ok && data.user) {
+    return data.user.profile?.display_name || data.user.profile?.real_name || data.user.name;
+  }
+  return userId;
+}
+
+function formatHaiku(lines, displayName) {
+  const randomYear = Math.floor(Math.random() * (1900 - 1600 + 1)) + 1600;
+  return `*HAIKU BONUS* :tada:\n\`\`\`${lines[0].join(' ')}\n${lines[1].join(' ')}\n${lines[2].join(' ')}\n   -- _${displayName}_, ${randomYear}\`\`\``;
 }
 
 async function postToSlack(channel, text) {
@@ -211,11 +228,14 @@ app.post('/message', async (req, res) => {
           const result = await generateMessage(targetUserId, textBefore, textAfter);
           
           const haikuCheck = checkForHaiku(result.data);
-          const finalMessage = haikuCheck.isHaiku ? haikuCheck.text : result.data;
+          let finalMessage;
           
           if (haikuCheck.isHaiku) {
+            const displayName = await getUserDisplayName(targetUserId);
+            finalMessage = formatHaiku(haikuCheck.lines, displayName);
             console.log(`Generated haiku bonus for user ${targetUserId}:\n${finalMessage}`);
           } else {
+            finalMessage = result.data;
             console.log(`Generated message for user ${targetUserId}:`, finalMessage);
           }
           

@@ -1,22 +1,28 @@
+import 'dotenv/config';
 import { readdir, readFile } from 'fs/promises';
 import { join } from 'path';
-import { query, getClient, initDb } from './db.js';
+import { getClient, initDb } from './db.js';
 
-const SLACK_EXPORT_DIR = '/Users/max/Downloads/Back of the Bus Slack export Apr 22 2019 - Jan 27 2026/back-of-the-bus';
+const SLACK_EXPORT_DIR = process.env.SLACK_EXPORT_DIR;
+const TABLE_NAME = process.env.TABLE_NAME || 'botbslack';
+
+if (!SLACK_EXPORT_DIR) {
+  console.error('Error: SLACK_EXPORT_DIR environment variable is required');
+  process.exit(1);
+}
 
 async function importMessages() {
-  // Initialize the database table
   await initDb();
   
-  // Get all JSON files in the directory
   const files = await readdir(SLACK_EXPORT_DIR);
   const jsonFiles = files.filter(f => f.endsWith('.json'));
   
+  console.log(`Importing from: ${SLACK_EXPORT_DIR}`);
+  console.log(`Target table: ${TABLE_NAME}`);
   console.log(`Found ${jsonFiles.length} JSON files to process`);
   
   let totalMessages = 0;
   
-  // Get a client for the transaction
   const client = await getClient();
   
   try {
@@ -27,7 +33,6 @@ async function importMessages() {
       const content = await readFile(filePath, 'utf-8');
       const data = JSON.parse(content);
       
-      // Filter for message types and extract user/text/ts
       const messages = data
         .filter(obj => obj.type === 'message' && obj.user && obj.text)
         .map(obj => ({
@@ -36,10 +41,9 @@ async function importMessages() {
           ts: obj.ts
         }));
       
-      // Insert messages in batches
       for (const msg of messages) {
         await client.query(
-          'INSERT INTO botbslack (user_id, message, ts) VALUES ($1, $2, $3)',
+          `INSERT INTO ${TABLE_NAME} (user_id, message, ts) VALUES ($1, $2, $3)`,
           [msg.user_id, msg.message, msg.ts]
         );
       }

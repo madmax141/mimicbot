@@ -1,6 +1,6 @@
 # Mimic
 
-A Node.js web server with PostgreSQL storage and Markov chain text generation.
+A Slack bot that generates Markov chain responses mimicking users based on their message history.
 
 ## Setup
 
@@ -9,27 +9,40 @@ A Node.js web server with PostgreSQL storage and Markov chain text generation.
 npm install
 ```
 
-2. Configure database connection by creating a `.env` file (see `.env.example`):
+2. Configure environment variables by creating a `.env` file:
 ```bash
 cp .env.example .env
-# Edit .env with your PostgreSQL credentials
 ```
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DB_HOST` | PostgreSQL host | `localhost` |
-| `DB_PORT` | PostgreSQL port | `5432` |
-| `DB_NAME` | Database name | `mimic` |
-| `DB_USER` | Database user | `postgres` |
-| `DB_PASSWORD` | Database password | (empty) |
-| `DB_SSL` | Enable SSL connection | `false` |
-| `PORT` | Server port | `3000` |
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | PostgreSQL connection string (e.g. `postgresql://user:pass@host:5432/dbname`) | Yes |
+| `SLACK_BOT_TOKEN` | Slack Bot User OAuth Token (starts with `xoxb-`) | Yes |
+| `PORT` | Server port | No (default: `3000`) |
+| `SLACK_EXPORT_DIR` | Path to Slack export channel directory (for import script) | For import |
+| `TABLE_NAME` | Database table name | No (default: `botbslack`) |
+
+## Seeding the Database
+
+Before using the bot, you need to populate the database with Slack message history. Export your Slack workspace data and use the import script:
+
+1. Get a Slack export (Settings & Administration > Workspace settings > Import/Export Data)
+2. Set the `SLACK_EXPORT_DIR` environment variable to point to the channel folder within your export:
+```bash
+export SLACK_EXPORT_DIR=/path/to/slack-export/channel-name
+```
+3. Run the import:
+```bash
+npm run import
+```
+
+This will load all user messages from the Slack JSON files into the database.
 
 ## Running
 
-Development (with auto-reload):
+Development:
 ```bash
 npm run dev
 ```
@@ -39,40 +52,15 @@ Production:
 npm start
 ```
 
-## Importing Data
+## Usage
 
-To import messages from a Slack export:
-```bash
-npm run import
+In Slack, mention the bot followed by a target user to generate a message mimicking that user:
+
+```
+@mimic @steve
 ```
 
-## API Endpoints
-
-### POST /api/message
-Store a message for a user.
-
-**Request:**
-```json
-{
-  "user_id": "U123ABC",
-  "message": "Hello world"
-}
-```
-
-### GET /api/messages?user_id=U123ABC
-Generate a Markov chain message based on a user's stored messages.
-
-**Response:**
-```json
-{
-  "success": true,
-  "rawdata": [[], [], ["generated", "text", "here"]],
-  "data": "generated text here"
-}
-```
-
-### GET /health
-Health check endpoint.
+The bot will generate a Markov chain response based on Steve's message history. If the generated message happens to be a haiku (5-7-5 syllables), it will be formatted as a "HAIKU BONUS".
 
 ## Database Schema
 
@@ -80,6 +68,7 @@ Health check endpoint.
 CREATE TABLE botbslack (
   id SERIAL PRIMARY KEY,
   user_id TEXT,
-  message TEXT
+  message TEXT,
+  ts TEXT
 );
 ```
