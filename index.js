@@ -1,6 +1,7 @@
 import express from 'express';
 import { query, initDb } from './db.js';
 import { Chain } from 'markov-chainer';
+import { syllable } from 'syllable';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -78,32 +79,7 @@ async function storeMessage(user_id, message, ts) {
 
 // Helper: Generate a Markov chain message for a user
 async function generateMessage(user_id, textBefore, textAfter) {
-  let chain;
-
-  // Check if chain is already cached for this user
-  if (cachedChains.has(user_id)) {
-    chain = cachedChains.get(user_id);
-    console.log(`Using cached chain for user ${user_id}`);
-  } else {
-    // Fetch from DB and create chain
-    const result = await query(
-      'SELECT message FROM botbslack WHERE user_id = $1',
-      [user_id]
-    );
-    const rows = result.rows;
-
-    if (rows.length === 0) {
-      throw { status: 404, message: 'No messages found for this user' };
-    }
-
-    // Create corpus - each message split into words
-    const corpus = rows.map(row => row.message.split(/\s+/));
-    
-    // Create and cache the chain
-    chain = new Chain({ corpus, order: 1 });
-    cachedChains.set(user_id, chain);
-    console.log(`Cached chain for user ${user_id} (${corpus.length} messages)`);
-  }
+  const chain = await getChainForUser(user_id);
 
   const hasTextBefore = textBefore.trim().length > 0;
   const hasTextAfter = textAfter.trim().length > 0;
@@ -132,6 +108,80 @@ async function generateMessage(user_id, textBefore, textAfter) {
     targetUser: user_id,
     data: data.trim()
   };
+}
+
+// Count syllables in a word
+function countSyllables(word) {
+  const count = syllable(word);
+  return count > 0 ? count : 1;
+}
+
+// Get or create chain for a user
+async function getChainForUser(user_id) {
+  if (cachedChains.has(user_id)) {
+    return cachedChains.get(user_id);
+  }
+  
+  const result = await query(
+    'SELECT message FROM botbslack WHERE user_id = $1',
+    [user_id]
+  );
+  const rows = result.rows;
+
+  if (rows.length === 0) {
+    throw { status: 404, message: 'No messages found for this user' };
+  }
+
+  const corpus = rows.map(row => row.message.split(/\s+/));
+  const chain = new Chain({ corpus, order: 1 });
+  cachedChains.set(user_id, chain);
+  console.log(`Cached chain for user ${user_id} (${corpus.length} messages)`);
+  
+  return chain;
+}
+
+// Check if text is a haiku (5-7-5 syllables) and format it if so
+function checkForHaiku(text) {
+  const words = text.trim().split(/\s+/);
+  if (words.length < 3) return { isHaiku: false, text };
+  
+  const targetSyllables = [5, 7, 5];
+  const lines = [[], [], []];
+  let lineIndex = 0;
+  let syllableCount = 0;
+  
+  for (const word of words) {
+    if (lineIndex > 2) break;
+    
+    const wordSyllables = countSyllables(word);
+    
+    if (syllableCount + wordSyllables <= targetSyllables[lineIndex]) {
+      lines[lineIndex].push(word);
+      syllableCount += wordSyllables;
+    } else if (syllableCount === targetSyllables[lineIndex]) {
+      // Current line is complete, start next line
+      lineIndex++;
+      if (lineIndex <= 2) {
+        lines[lineIndex].push(word);
+        syllableCount = wordSyllables;
+      }
+    } else {
+      // Doesn't fit the pattern
+      return { isHaiku: false, text };
+    }
+  }
+  
+  // Check if we completed exactly 5-7-5
+  const lineSyllables = lines.map(line => 
+    line.reduce((sum, word) => sum + countSyllables(word), 0)
+  );
+  
+  if (lineSyllables[0] === 5 && lineSyllables[1] === 7 && lineSyllables[2] === 5) {
+    const formattedHaiku = `haiku bonus:\n${lines[0].join(' ')}\n${lines[1].join(' ')}\n${lines[2].join(' ')}`;
+    return { isHaiku: true, text: formattedHaiku };
+  }
+  
+  return { isHaiku: false, text };
 }
 
 // Extract all user mentions from message text
@@ -243,11 +293,20 @@ app.post('/message', async (req, res) => {
           // Generate markov chain for the mentioned user
           const targetUserId = nextMention.userId;
           const result = await generateMessage(targetUserId, textBefore, textAfter);
-          console.log(`Generated message for user ${targetUserId}:`, result.data);
+          
+          // Check if the generated message happens to be a haiku
+          const haikuCheck = checkForHaiku(result.data);
+          const finalMessage = haikuCheck.text;
+          
+          if (haikuCheck.isHaiku) {
+            console.log(`Generated haiku bonus for user ${targetUserId}:\n${finalMessage}`);
+          } else {
+            console.log(`Generated message for user ${targetUserId}:`, finalMessage);
+          }
           
           // Post the generated message back to Slack (skip if no token configured)
           if (SLACK_BOT_TOKEN) {
-            await postToSlack(event.channel, result.data);
+            await postToSlack(event.channel, finalMessage);
           }
         } else {
           console.log('Bot was mentioned but no target user specified');

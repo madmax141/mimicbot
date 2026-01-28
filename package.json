@@ -15,6 +15,7 @@
   "dependencies": {
     "express": "^4.21.0",
     "markov-chainer": "^0.1.8",
-    "pg": "^8.13.0"
+    "pg": "^8.13.0",
+    "syllable": "^5.0.1"
   }
 }
