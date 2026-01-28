@@ -10,8 +10,6 @@ const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || '';
 const processedEvents = new Set();
 const MAX_PROCESSED_EVENTS = 1000;
 
-const cachedChains = new Map();
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -58,10 +56,6 @@ function countSyllables(word) {
 }
 
 async function getChainForUser(user_id) {
-  if (cachedChains.has(user_id)) {
-    return cachedChains.get(user_id);
-  }
-  
   const result = await query(
     'SELECT message FROM botbslack WHERE user_id = $1',
     [user_id]
@@ -74,8 +68,7 @@ async function getChainForUser(user_id) {
 
   const corpus = rows.map(row => row.message.split(/\s+/));
   const chain = new Chain({ corpus, order: 1 });
-  cachedChains.set(user_id, chain);
-  console.log(`Cached chain for user ${user_id} (${corpus.length} messages)`);
+  console.log(`Built chain for user ${user_id} (${corpus.length} messages)`);
   
   return chain;
 }
