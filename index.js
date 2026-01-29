@@ -165,7 +165,7 @@ async function getUserDisplayName(userId) {
 
 function formatHaiku(lines, displayName) {
   const randomYear = Math.floor(Math.random() * (1900 - 1600 + 1)) + 1600;
-  return `*HAIKU BONUS* :tada:\n\`\`\`${lines[0].join(' ')}\n${lines[1].join(' ')}\n${lines[2].join(' ')}\n   -- _${displayName}_, ${randomYear}\`\`\``;
+  return `*HAIKU BONUS* :tada:\n\`\`\`${lines[0].join(' ')}\n${lines[1].join(' ')}\n${lines[2].join(' ')}\n   -- ${displayName}, ${randomYear}\`\`\``;
 }
 
 async function postToSlack(channel, text) {
