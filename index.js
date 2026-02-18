@@ -104,6 +104,7 @@ function checkForHaiku(text) {
   const lines = [[], [], []];
   let lineIndex = 0;
   let syllableCount = 0;
+  let wordsUsed = 0;
   
   for (const word of words) {
     if (lineIndex > 2) break;
@@ -113,15 +114,21 @@ function checkForHaiku(text) {
     if (syllableCount + wordSyllables <= targetSyllables[lineIndex]) {
       lines[lineIndex].push(word);
       syllableCount += wordSyllables;
+      wordsUsed++;
     } else if (syllableCount === targetSyllables[lineIndex]) {
       lineIndex++;
       if (lineIndex <= 2) {
         lines[lineIndex].push(word);
         syllableCount = wordSyllables;
+        wordsUsed++;
       }
     } else {
       return { isHaiku: false, text };
     }
+  }
+  
+  if (wordsUsed !== words.length) {
+    return { isHaiku: false, text };
   }
   
   const lineSyllables = lines.map(line => 
@@ -291,13 +298,18 @@ app.post('/message', async (req, res) => {
   }
 });
 
-initDb()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+const isMainModule = process.argv[1]?.endsWith('index.js');
+if (isMainModule) {
+  initDb()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+      });
+    })
+    .catch((err) => {
+      console.error('Failed to initialize:', err);
+      process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error('Failed to initialize:', err);
-    process.exit(1);
-  });
+}
+
+export { checkForHaiku, countSyllables };
