@@ -96,6 +96,7 @@ async function getChainForAllUsers() {
 }
 
 function checkForHaiku(text) {
+  console.log('Checking for haiku in text:', text);
   const words = text.trim().split(/\s+/);
   if (words.length < 3) return { isHaiku: false, text };
   
